@@ -1,6 +1,6 @@
 EXEC 		= extract_shapelets
-CC			= g++
-CFLAGS 		= -lm -Wall -O3 
+CXX			= g++
+CFLAGS 		= -lm -Wall -O3 -lOpenCL
 SRC_DIR 	= ./src
 BUILD_DIR 	= ./build
 BIN_DIR 	= ./bin
@@ -14,10 +14,10 @@ OBJ = $(patsubst %,$(BUILD_DIR)/%,$(_OBJ))
 all: $(BIN_DIR)/$(EXEC)
 
 $(BIN_DIR)/$(EXEC): $(OBJ)
-	$(CC)  -o $@ $^ $(CFLAGS)
+	$(CXX)  -o $@ $^ $(CFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp 
-	$(CC)  -c -o $@ $< $(CFLAGS)
+	$(CXX)  -c -o $@ $< $(CFLAGS)
 
 .PHONY: clean
 clean:

@@ -1,20 +1,43 @@
 #include "shapelet_transform.hpp"
 
+TimeSeries::TimeSeries(const std::vector<float> values, const int class_id)
+        : values(values), class_id(class_id)
+{
+    //empty 
+}
+
+
+Shapelet::Shapelet(TimeSeries& ts, int start_index, int length)
+:   ts(&ts), class_id(ts.get_class_id()), start_index(start_index), length(length)
+{
+    //empty
+}
+
+
+// compare if two shapelets are self similar
+bool Shapelet::operator==(Shapelet& s){
+    // compare if both shapelets are from the same time series and 
+    // if they share any time series elements
+    return (ts == s.get_TimeSeries()) and  
+        ((this->get_start_position() >= s.get_start_position() and this->get_start_position() < s.get_final_posiiton()) or
+        (s.get_start_position() >= this->get_start_position() and s.get_start_position() < this->get_final_posiiton()));
+}
+
 
 ShapeletSelection::ShapeletSelection(std::vector<TimeSeries> ts_list, const unsigned int k_best, 
                                     const int min, const int max)
 : ts_list(ts_list), k(k_best), min(min), max(max)
 {
     if(min > max or min < 0){
-        //TODO: throw invalid argument except
-        std::cout << "Min greater than max!" << std::endl;
-        exit(-1);
+        throw std::invalid_argument("Error initializing ShapeletSelection:  \
+        Min greater than Max!");
     }
     if(ts_list.size() <= 2){
-        std::cout << "Number of time series must be greater than 2" << std::endl;
-        exit(-2);
+        throw std::invalid_argument("Error initializing ShapeletSelection:  \
+        Number of time series must be greater than 2!");
     }
 }
+
 
 // initialize reading from a dataset file
 // headless should be false if no csv file is present
@@ -23,12 +46,11 @@ ShapeletSelection::ShapeletSelection(std::string input_filepath, const int k_bes
 : ts_list(read_dataset(input_filepath)), k(k_best), min(min), max(max)
 {
     if(min > max or min < 0){
-        //TODO: throw invalid argument except
-        std::cout << "Min greater than max!" << std::endl;
+        std::cerr << "Min greater than max!" << std::endl;
         exit(-1);
     }
     if(ts_list.size() <= 2){
-        std::cout << "Number of time series must be greater than 2" << std::endl;
+        std::cerr << "Number of time series must be greater than 2" << std::endl;
         exit(-2);
     }
 }
@@ -37,7 +59,8 @@ ShapeletSelection::ShapeletSelection(std::string input_filepath, const int k_bes
 void ShapeletSelection::select_best()
 {
     int num_shapelets=0; //defines the number of shapelets of size l 
-    // holds the value of each distance calculations. Cleared after calculation is complete and reused;
+    // holds the value of each distance calculations. 
+    // Cleared after calculation is complete and reused;
     std::vector<float> shapelet_distances; 
     std::vector<Shapelet> candidate_list; 
 
@@ -231,16 +254,20 @@ void ShapeletSelection::remove_self_similars(std::vector<Shapelet>& shapelet_lis
 }
 
 
-// 
+// read csv file header must have format
+// <number_ts> <number_elements>
+// SEPARATED BY SPACE
+// each following line is a ts, elements separated by spaces, and 
+// the last element is 0 or 1 representing class
 std::vector<TimeSeries> ShapeletSelection::read_dataset(std::string input_filepath)   
 {
-    //lotsa objects getting copied huh fuck
     unsigned long num_ts, num_elements; // number of timeseries and elements per ts
     std::vector<TimeSeries> ts_list;
     std::string line;
     std::vector<float> values;
     int class_id;
     float val;
+
     std::ifstream input_file(input_filepath);
     if(input_file.fail()){
         std::cerr << "Could not open file: " << input_filepath << " for reading!" << std::endl;
@@ -311,4 +338,224 @@ void ShapeletSelection::write_best_shapelets(std::string output_filepath) const
     }
 
     output_file.close();
+}
+
+//------------------------
+// OPEN CL IMPLEMENTATION 
+//------------------------
+
+// lets user choose a platform based on availble platforms
+void ShapeletSelectionCL::interactive_set_platform_device()
+{
+    std::vector<cl::Platform> platforms;    // platform query
+
+    // get platforms
+    cl::Platform::get(&platforms);
+
+    std::cout << "Select the platform:" << std::endl;
+
+    for(int i=0; i < platforms.size(); i++){
+        std::cout << "[" << i << "] " << platforms.at(i).getInfo<CL_PLATFORM_NAME>() << std::endl;
+    }
+
+    int index = -1;
+    while(index < 0 or index >= platforms.size()){
+        std::cin >> index;
+    }
+
+    platform = platforms.at(index);
+    std::cout << "Selected platform: " << platform.getInfo<CL_PLATFORM_NAME>() << std::endl;
+
+    // get devices from platform
+    platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
+
+    std::cout << "Select device: " << std::endl;
+
+    for(int i=0; i < devices.size(); i++){
+        std::cout << "[" << i << "] " << devices[i].getInfo<CL_DEVICE_NAME>() << std::endl;
+    }
+
+    index = -1;
+    while(index < 0 or index >= devices.size()){
+        std::cin >> index;
+    }
+
+    device = devices.at(index);
+    std::cout << "Selected device: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
+}
+
+
+// selects the first platform and device found
+void ShapeletSelectionCL::set_default_platform_device()
+{
+    std::vector<cl::Platform> platforms;    // platform query
+
+    cl::Platform::get(&platforms);
+    platform = platforms.at(0);
+    
+    platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
+    device = devices.at(0);
+}
+
+
+// creates context, command queue, buffers and kernel 
+void ShapeletSelectionCL::init_context()
+{
+    context = cl::Context(devices);
+
+    if(enable_profiling){
+        queue = cl::CommandQueue(context, device, CL_QUEUE_PROFILING_ENABLE);
+    }
+    else {
+        queue = cl::CommandQueue(context, device);
+    }
+
+    // buffers
+
+    // create and compile kernel
+    std::ifstream sourceFile(KERNEL_FILEPATH);
+    if(sourceFile.fail()){
+        std::cerr << "Could not find kernel file" << std::endl;
+        exit(-1);
+    }
+
+    std::string sourceCode(std::istreambuf_iterator<char>(sourceFile),
+                        (std::istreambuf_iterator < char > ()));
+
+    cl::Program::Sources source(1, 
+                            std::make_pair(sourceCode.c_str(),
+                            sourceCode.length() + 1));
+    
+    // Make program from the source code
+    cl::Program program(context, source);
+
+    try
+    {
+        program.build(devices);
+    }
+    catch (cl::Error& e)
+    {
+        if (e.err() == CL_BUILD_PROGRAM_FAILURE)
+        {
+            for (cl::Device dev : devices)
+            {
+                // Check the build status
+                cl_build_status status = program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(dev);
+                if (status != CL_BUILD_ERROR)  continue;
+
+                // Get the build log
+                std::string name     = dev.getInfo<CL_DEVICE_NAME>();
+                std::string buildlog = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(dev);
+                std::cerr << "Build log for " << name << ":" << std::endl
+                            << buildlog << std::endl;
+            }
+        }
+        else
+        {
+            throw e;
+        }
+    }
+
+    // Make kernel
+    kernel = cl::Kernel(program, "shapelet_distance");
+    // create new buffers
+    // pivot is constant memory access
+    // each buffer is created with the maximum memory required predicted
+    buf_norm_pivot = cl::Buffer(context, CL_MEM_READ_ONLY, max * sizeof(float));
+    // entire time series to access target shapelets. Each TS must have the same size
+    // so it is ok to set this buffer size to be the size of the first time series
+    buf_target_shapelet = cl::Buffer(context, CL_MEM_READ_ONLY, ts_list[0].size() * sizeof(float));
+    // heap memory area to store normalized pivot shapelets
+    // the maximum number of shapelets are ts.size() - min + 1, and their maximum length is max
+    buf_norm_target = cl::Buffer(context, CL_MEM_READ_WRITE,  (ts_list[0].size() - min + 1) * max * sizeof(float));
+    // stores distance results
+    buf_distances = cl::Buffer(context, CL_MEM_WRITE_ONLY, (ts_list[0].size() - min + 1) * sizeof(float));
+
+    // set buffers as kernel args
+    // the shapelet length must be changed each kernel execution
+    kernel.setArg(0, buf_norm_pivot);
+    kernel.setArg(1, buf_target_shapelet);
+    kernel.setArg(2, buf_norm_target);
+    kernel.setArg(3, buf_distances);
+
+}
+
+
+ShapeletSelectionCL::ShapeletSelectionCL(const std::string input_filepath, const int k_best, 
+    const int min, const int max, const bool interactive_selection, const bool enable_profiling)
+
+: ShapeletSelection(input_filepath, k_best, min, max), enable_profiling(enable_profiling)
+{
+    try{
+        if(interactive_selection){
+            interactive_set_platform_device();
+        }
+        else{
+            set_default_platform_device();
+        }
+
+        init_context();
+    }
+    catch(cl::Error& error){
+        std::cout << error.what() << "(" << error.err() << ")" << std::endl;
+        exit(-1);
+    }
+}
+
+
+float ShapeletSelectionCL::shapelet_ts_distance(Shapelet& pivot, TimeSeries& curr_ts)
+{
+    std::vector<float> pivot_norm; 
+    const int num_shapelets = curr_ts.size() - pivot.get_length() + 1;
+    float *distances = new float[num_shapelets]; // result distances
+    float min_distance;
+    
+    // normalize pivot shapelet only once on host
+    pivot_norm = pivot.get_values_vector();
+    zscore_normalization(pivot_norm);    
+
+    // launch kernels from here
+    // each work-item will calculate the distance between pivot and a target shapelet
+    try
+    {
+        // we make use of data() to extract array from vector<>
+        queue.enqueueWriteBuffer(buf_norm_pivot, CL_TRUE, 0,  pivot_norm.size() * sizeof(float), pivot_norm.data());
+        queue.enqueueWriteBuffer(buf_target_shapelet, CL_TRUE, 0,  curr_ts.size() * sizeof(float), curr_ts.get_values().data());
+
+        kernel.setArg(4, pivot_norm.size());
+
+        // the number of work items is equal to the number of shapelets to compare
+        // might need to check global work size to be a multiple of local work size
+        cl::NDRange global(num_shapelets);
+
+        queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, 
+                    cl::NullRange, NULL, &event);
+        
+        if(enable_profiling){
+            event.wait();
+            // time necessary to issue the kernel
+            total_dispatch_time += event.getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>() - 
+                                    event.getProfilingInfo<CL_PROFILING_COMMAND_QUEUED>();
+
+            // time executing the kernel
+            total_exec_time += event.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                            event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+        }
+
+        // write values to a distance array
+        queue.enqueueReadBuffer(buf_distances, CL_TRUE, 0, num_shapelets * sizeof(float), distances);
+    }
+    catch(cl::Error& error)
+    {
+        std::cerr << "Error launching kernel! " << error.what() <<
+        " [" << error.err() << "] " << std::endl;
+        exit(-1);
+    }
+
+    // find the min distance in array
+    min_distance = *std::min_element(distances, distances + num_shapelets); 
+
+    delete[] distances;
+
+    return min_distance;
 }

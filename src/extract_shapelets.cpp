@@ -12,7 +12,8 @@ int main(int argc, char *argv[])
     string input_filepath, output_filepath;
 
     if(argc != 6){
-        cerr << "Please use " << argv[0] << " {path_to_dataset} {output_filename} {min_len} {max_len} {k_best}" << endl;
+        cerr << "Please use " << argv[0] << 
+        " {path_to_dataset} {output_filename} {min_len} {max_len} {k_best}" << endl;
         exit(-1);
     }
 
@@ -41,7 +42,7 @@ int main(int argc, char *argv[])
     }
 
     // start shapelet selection model
-    ShapeletSelection model(input_filepath, k, min_len, max_len);
+    ShapeletSelectionCL model(input_filepath, k, min_len, max_len);
 
     cout << "Finding the best " << k << "shapelets from dataset: "
     << input_filepath << " with lengths: " << min_len << " to " << max_len << endl;
