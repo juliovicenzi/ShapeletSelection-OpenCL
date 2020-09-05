@@ -42,9 +42,9 @@ int main(int argc, char *argv[])
     }
 
     // start shapelet selection model
-    ShapeletSelectionCL model(input_filepath, k, min_len, max_len);
+    ShapeletSelectionCL model(input_filepath, k, min_len, max_len, true, false);
 
-    cout << "Finding the best " << k << "shapelets from dataset: "
+    cout << "Finding the best " << k << " shapelets from dataset: "
     << input_filepath << " with lengths: " << min_len << " to " << max_len << endl;
     // run shapelet selection algorithm
     model.select_best();
@@ -53,6 +53,7 @@ int main(int argc, char *argv[])
     // write results to file
     model.write_best_shapelets(output_filepath);
 
-    cout << "Sucess!" << endl;
+    cout << "Time spent executing kernels: " << model.get_total_exec_time() << " ms" << endl
+    << "Time spent launching kernels: " << model.get_total_dispatch_time() << " ms" << endl
+    << "Sucess!" << endl;
 }
-
