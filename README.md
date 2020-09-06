@@ -29,5 +29,4 @@ This code is written to work with C++11 and OpenCL version 1.2.
 
 * Implement multi class f statistic
 * Smarter accleration kernel
-* Fix datasets to be compatible with current format
 * Reduce memory allocation by making use of C arrays rather than std::vector
