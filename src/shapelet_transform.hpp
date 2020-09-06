@@ -77,7 +77,7 @@ public:
 
     // checks if two shapelets are self similar
     // no need to be implemented as operator, I just wanted to use it this way
-    bool operator==(Shapelet& s);
+    bool operator==(const Shapelet& s);
 };
 
 
@@ -96,13 +96,13 @@ protected:
     void remove_self_similars(std::vector<Shapelet>& shapelet_list);
 
     // overriden by class ShapeletSelectionCL
-    virtual float shapelet_ts_distance(Shapelet& pivot, TimeSeries& curr_ts);
+    virtual float shapelet_ts_distance(std::vector<float>& pivot, TimeSeries& curr_ts);
 
 public:
-    ShapeletSelection(std::vector<TimeSeries> ts_list, const unsigned int k_best, const int min, const int max);
+    ShapeletSelection(const std::vector<TimeSeries>& ts_list, const unsigned int k_best, const int min, const int max);
 
     // initialize reading from a csv file
-    ShapeletSelection(std::string input_filepath, const int k_best, const int min, const int max);
+    ShapeletSelection(const std::string& input_filepath, const int k_best, const int min, const int max);
 
     // virtual destructor
     virtual ~ShapeletSelection() = default;
@@ -117,11 +117,11 @@ public:
     // HEADER CONTAINTS: <number of ts> <ts elements>
     // header is separated by space
     // each line is a time series separated by comma, last value is 0 or 1 representing class
-    std::vector<TimeSeries> read_dataset(std::string input_filepath);
+    std::vector<TimeSeries> read_dataset(const std::string& input_filepath);
 
     //writes the best shapelets to file
     //comma separated, no header
-    void write_best_shapelets(std::string output_filepath) const;
+    void write_best_shapelets(const std::string& output_filepath) const;
 };
 
 
@@ -159,7 +159,7 @@ private:
 
 protected:
     // shapelet_ts_distance is overriden to a accelerated implementation
-    float shapelet_ts_distance(Shapelet& pivot, TimeSeries& curr_ts) override;
+    float shapelet_ts_distance(std::vector<float>& pivot_norm, TimeSeries& curr_ts) override;
 
 public:
 

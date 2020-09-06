@@ -15,7 +15,7 @@ Shapelet::Shapelet(TimeSeries& ts, int start_index, int length)
 
 
 // compare if two shapelets are self similar
-bool Shapelet::operator==(Shapelet& s){
+bool Shapelet::operator==(const Shapelet& s){
     // compare if both shapelets are from the same time series and
     // if they share any time series elements
     return (ts == s.get_TimeSeries()) and
@@ -24,7 +24,7 @@ bool Shapelet::operator==(Shapelet& s){
 }
 
 
-ShapeletSelection::ShapeletSelection(std::vector<TimeSeries> ts_list, const unsigned int k_best,
+ShapeletSelection::ShapeletSelection(const std::vector<TimeSeries>& ts_list, const unsigned int k_best,
                                     const int min, const int max)
 : ts_list(ts_list), k(k_best), min(min), max(max)
 {
@@ -41,7 +41,7 @@ ShapeletSelection::ShapeletSelection(std::vector<TimeSeries> ts_list, const unsi
 
 // initialize reading from a dataset file
 // headless should be false if no csv file is present
-ShapeletSelection::ShapeletSelection(std::string input_filepath, const int k_best,
+ShapeletSelection::ShapeletSelection(const std::string& input_filepath, const int k_best,
                                     const int min, const int max)
 : ts_list(read_dataset(input_filepath)), k(k_best), min(min), max(max)
 {
@@ -58,7 +58,7 @@ ShapeletSelection::ShapeletSelection(std::string input_filepath, const int k_bes
 
 void ShapeletSelection::select_best()
 {
-    int num_shapelets=0; //defines the number of shapelets of size l
+    int num_shapelets; //defines the number of shapelets of size l
     // holds the value of each distance calculations.
     // Cleared after calculation is complete and reused;
     std::vector<float> shapelet_distances;
@@ -74,9 +74,20 @@ void ShapeletSelection::select_best()
             for(int position=0; position < num_shapelets; position++){
                 Shapelet shapelet_candidate(current_ts, position, l);
 
-                // Calculate distances from current shapelet candidate to each time series in T,
+                // normalize shapelet:
+                // normalize pivot only ONCE
+                std::vector<float> pivot_norm = shapelet_candidate.get_values_vector();
+                zscore_normalization(pivot_norm);
+
+                    // Calculate distances from current shapelet candidate to each time series in T,
                 for(TimeSeries& compared_ts : ts_list){
-                   shapelet_distances.push_back(shapelet_ts_distance(shapelet_candidate, compared_ts));
+                    // the distance of a shapelet to its own timeseries is ALWAYS zero
+                    if(&compared_ts == shapelet_candidate.get_TimeSeries()){
+                        shapelet_distances.push_back(0.0);
+                    }
+                    else{
+                        shapelet_distances.push_back(shapelet_ts_distance(pivot_norm, compared_ts));
+                    }
                 }
 
                 shapelet_candidate.set_quality(bin_f_statistic(shapelet_distances));
@@ -152,23 +163,20 @@ void ShapeletSelection::zscore_normalization(std::vector<float>& vec)
 
 // calculates the distance between a single ts to an entire timeseries
 // returns the smallest distance between this shapelet and all same size shapelets
-// in the time series
-float ShapeletSelection::shapelet_ts_distance(Shapelet& pivot, TimeSeries& curr_ts)
+// in the time series. Input shapelet must already be normalized
+float ShapeletSelection::shapelet_ts_distance(std::vector<float>& pivot_norm, TimeSeries& curr_ts)
 {
     float min_distance = INFINITY;
-    std::vector<float> pivot_norm, target_norm;
-    const int num_shapelets = curr_ts.size() - pivot.get_length() + 1;
-
-    // normalize pivot only ONCE
-    pivot_norm = pivot.get_values_vector();
-    zscore_normalization(pivot_norm);
+    std::vector<float> target_norm;
+    const int num_shapelets = curr_ts.size() - pivot_norm.size() + 1;
 
     for(int i=0; i< num_shapelets; i++){
         // copy only the current shapelet values necessary
         target_norm = std::vector<float>(curr_ts.get_values().begin() + i,
-                                    curr_ts.get_values().begin() + i + pivot.get_length());
+                                    curr_ts.get_values().begin() + i + pivot_norm.size());
         zscore_normalization(target_norm);  // normalize target shaplet
 
+        // implements early abandon via min_distance
         euclidean_distance(pivot_norm, target_norm, min_distance);
     }
     return min_distance;
@@ -225,7 +233,7 @@ void ShapeletSelection::remove_self_similars(std::vector<Shapelet>& shapelet_lis
 {
     //new list containing non self similar shapelets
     std::vector<Shapelet> temp_list;
-    bool self_similar=false;
+    bool self_similar;
 
     //first shapelet is always included, given a sorted list
     temp_list.push_back(shapelet_list.at(0));
@@ -258,7 +266,7 @@ void ShapeletSelection::remove_self_similars(std::vector<Shapelet>& shapelet_lis
 // SEPARATED BY SPACE
 // each following line is a ts, elements separated by spaces, and
 // the last element is 0 or 1 representing class
-std::vector<TimeSeries> ShapeletSelection::read_dataset(std::string input_filepath)
+std::vector<TimeSeries> ShapeletSelection::read_dataset(const std::string& input_filepath)
 {
     unsigned long num_ts, num_elements; // number of timeseries and elements per ts
     std::vector<TimeSeries> ts_list;
@@ -278,11 +286,6 @@ std::vector<TimeSeries> ShapeletSelection::read_dataset(std::string input_filepa
     std::stringstream _s(line);
     _s >> num_ts;
     _s >> num_elements;
-
-    if(num_ts <= 0 or num_elements <= 0){
-        std::cerr << "Error reading csv header!" << std::endl;
-        exit(-1);
-    }
 
     // Read data, line by line
     while(std::getline(input_file, line))
@@ -321,7 +324,7 @@ std::vector<TimeSeries> ShapeletSelection::read_dataset(std::string input_filepa
 }
 
 
-void ShapeletSelection::write_best_shapelets(std::string output_filepath) const
+void ShapeletSelection::write_best_shapelets(const std::string& output_filepath) const
 {
     std::ofstream output_file(output_filepath);
     if(output_file.fail()){
@@ -502,16 +505,11 @@ ShapeletSelectionCL::ShapeletSelectionCL(const std::string input_filepath, const
 }
 
 
-float ShapeletSelectionCL::shapelet_ts_distance(Shapelet& pivot, TimeSeries& curr_ts)
+float ShapeletSelectionCL::shapelet_ts_distance(std::vector<float>& pivot_norm, TimeSeries& curr_ts)
 {
-    std::vector<float> pivot_norm;
-    const int num_shapelets = curr_ts.size() - pivot.get_length() + 1;
+    const int num_shapelets = curr_ts.size() - pivot_norm.size() + 1;
     float *distances = new float[num_shapelets]; // result distances
     float min_distance;
-
-    // normalize pivot shapelet only once on host
-    pivot_norm = pivot.get_values_vector();
-    zscore_normalization(pivot_norm);
 
     // launch kernels from here
     // each work-item will calculate the distance between pivot and a target shapelet
