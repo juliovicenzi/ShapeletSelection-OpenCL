@@ -105,7 +105,7 @@ public:
     ShapeletSelection(std::string input_filepath, const int k_best, const int min, const int max);
 
     // virtual destructor
-    virtual ~ShapeletSelection() {}
+    virtual ~ShapeletSelection() = default;
 
     // runs shapelet selection to find the k best shapelets
     void select_best();
