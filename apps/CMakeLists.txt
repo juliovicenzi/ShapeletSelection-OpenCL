@@ -1,0 +1,4 @@
+add_executable(extract_shapelets extract_shapelets.cpp)
+target_compile_features(extract_shapelets PRIVATE cxx_std_11)
+
+target_link_libraries(extract_shapelets PRIVATE shapelet_transform)
